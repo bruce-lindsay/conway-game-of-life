@@ -2,19 +2,22 @@ let grid_size_x;
 let grid_size_y;
 let ctx;
 let block_size;
-let start_delay = 2000;
-let step_delay = 100;
+let start_delay = 100;
+let step_delay = 1000;
+let generation = 0;
+let state_global;
+let drift_pixel = 0;
+let option = {
+    color_tenth: 0,
+    freeze: 0
+};
 
 function windowLoad() {
-    if(document.URL.includes('table=table')) {
-        start_table();
-    } else {
-        start_canvas();
-    }
+    start_canvas();
 }
 
 function start_canvas() {
-    block_size = 10;
+    block_size = 13;
     let canvas = document.getElementById('canvas');
     ctx = canvas.getContext('2d');
     let rect = document.body.getBoundingClientRect();
@@ -22,31 +25,17 @@ function start_canvas() {
     grid_size_y = Math.floor(rect.height / block_size);
     canvas.width = grid_size_x * block_size;
     canvas.height = grid_size_y * block_size;
-    let state = get_seed();
-    draw_life(state);
+    state_global = get_seed();
+    requestAnimationFrame(draw_life);
+
     window.setTimeout(function() {
         window.setInterval(function() {
-            state = get_next_left(state);
-            state = drift(-1, state);
-            draw_life(state);
-        }, step_delay);
-    }, start_delay);
-}
-
-function start_table() {
-    grid_size_x = 100;
-    grid_size_y = 50;
-    block_size = 5;
-
-    let table = document.getElementById('table');
-    table.style.width = grid_size_x * block_size + 'px';
-    let state = get_seed();
-    table.innerHTML = get_life_html(state);
-    window.setTimeout(function() {
+            drift_pixel-=1;
+        }, step_delay/20);
         window.setInterval(function() {
-            state = get_next_left(state);
-            state = drift(-1, state);
-            table.innerHTML = get_life_html(state);
+            let state = get_next_left(state_global);
+            state_global = state;
+            generation++;
         }, step_delay);
     }, start_delay);
 }
@@ -76,6 +65,10 @@ function drift(x, state) {
 }
 
 function get_next_left(seed) {
+    if(option.freeze) {
+        return seed;
+    }
+
     let a = [];
     let any = false;
     for(let row = 0; row < grid_size_y; row++) {
@@ -124,37 +117,91 @@ function get_seed() {
     return a;
 }
 
-function draw_life(state) {
-    ctx.clearRect(0,0,grid_size_x*block_size, grid_size_y*block_size)
-    ctx.fillStyle = '#CCCCCC';
-    ctx.strokeStyle = '#000000';
-    for(let row = 0; row < grid_size_y; row++) {
-        let row_loc = row * block_size;
-        for(let col = 0; col < grid_size_x; col++) {
-            if(state[row][col] == 1) {
-                ctx.fillRect(col * block_size, row_loc, block_size, block_size);
-                ctx.strokeRect(col * block_size, row_loc, block_size, block_size);
-            }
-        }
+
+let last_generation_drawn;
+let last_drift_pixel = false;
+function draw_life() {
+    if(last_generation_drawn != generation || last_drift_pixel != drift_pixel) {
+        draw_life_frame(state_global);
+        last_generation_drawn = generation;
+        last_drift_pixel = drift_pixel;
     }
+    requestAnimationFrame(draw_life);
 }
 
-function get_life_html(state) {
-    let a = state;
-    let rows = [];
-    for(let row = 0; row < a.length; row++) {
-        rows.push('<tr>');
-        for(let col = 0; col < a[row].length; col++) {
-            if(a[row][col] == 1) {
-                rows.push('<td class=filled></td>');
-            } else {
-                rows.push('<td class=empty></td>');
-            }
+function draw_life_frame(state) {
+    let translate_px = drift_pixel % block_size;
+    let translate_length = Math.floor((drift_pixel - translate_px) / block_size) % grid_size_x;
 
+    ctx.clearRect(0,0,grid_size_x*block_size, grid_size_y*block_size);
+    ctx.clearRect(0,0,1700, grid_size_y*block_size);
+    ctx.fillStyle = '#CCCCCC';
+    ctx.strokeStyle = '#000000';
+
+ctx.save();
+
+ctx.translate(translate_px,0);
+if(translate_px > block_size)
+console.log(translate_px);
+if(translate_length == 0) {
+    draw_life_section(state, 0, grid_size_y-1, 0, grid_size_x-1);
+} else if(translate_length < 0) {
+    let boundry = Math.abs(translate_length);
+
+    let left_start = boundry;
+    let left_end = grid_size_x - 1;
+    let right_start = 0;
+    let right_end = boundry; // draw 1 past to clip partial column
+    let width_rows_skipped = block_size * (1 + left_end - left_start);
+
+    draw_life_section(state, 0, grid_size_y-1, left_start, left_end);
+
+    ctx.save();
+    ctx.translate(width_rows_skipped, 0);
+    draw_life_section(state, 0, grid_size_y-1, right_start, right_end);
+    ctx.restore();
+
+} else if(translate_length > 0) {
+    let boundry = grid_size_x - translate_length - 1;
+
+    let left_start = boundry;
+    let left_end = grid_size_x - 1;
+    let right_start = 0;
+    let right_end = boundry -1;
+
+
+    let width_rows_skipped = block_size * (1 + left_end - left_start);
+
+    draw_life_section(state, 0, grid_size_y-1, left_start, left_end);
+
+    ctx.save();
+    ctx.translate(width_rows_skipped, 0);
+    draw_life_section(state, 0, grid_size_y-1, right_start, right_end);
+    ctx.restore();
+}
+
+
+
+ctx.restore();
+}
+
+function draw_life_section(state, start_row, row_end, start_col, col_end) {
+    for(let row = start_row; row <= row_end; row++) {
+        let row_loc = row * block_size;
+        for(let col = start_col; col <= col_end; col++) {
+            if(state[row][col] == 1) {
+                if(option.color_tenth && col % 10 == 0) {
+                    ctx.save();
+                    ctx.fillStyle = 'red';
+                    ctx.fillRect((col - start_col) * block_size, row_loc, block_size, block_size);
+                    ctx.restore();
+                } else {
+                    ctx.fillRect((col - start_col) * block_size, row_loc, block_size, block_size);
+                }
+                ctx.strokeRect((col - start_col) * block_size, row_loc, block_size, block_size);
+            }
         }
-        rows.push('</tr>');
     }
-    return rows.join('');
 }
 
 window.addEventListener("load", windowLoad);
