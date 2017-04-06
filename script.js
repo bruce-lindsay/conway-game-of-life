@@ -1,7 +1,9 @@
 let grid_size_x;
 let grid_size_y;
 let ctx;
-let block_size = 13;
+let ctx_off_screen;
+let buffer_image;
+let block_size = 12;
 let start_delay = 100;
 let step_delay = 1000;
 let generation = 0;
@@ -9,19 +11,29 @@ let state_global;
 let drift_pixel = 0;
 let option = {
     color_tenth: 0,
-    freeze: 0
+    freeze: 0,
+    border_guide: 0
 };
 
 function windowLoad() {
     start_canvas();
 }
 
+function initialize_off_screen_context() {
+    let canvas = document.createElement('canvas');
+    ctx_off_screen = canvas.getContext('2d');
+    canvas.width = grid_size_x * block_size;
+    canvas.height = grid_size_y * block_size;
+}
+
 function start_canvas() {
-    let canvas = document.getElementById('canvas');
-    ctx = canvas.getContext('2d');
     let rect = document.body.getBoundingClientRect();
     grid_size_x = Math.floor(rect.width / block_size);
     grid_size_y = Math.floor(rect.height / block_size);
+
+    let canvas = document.getElementById('canvas');
+    ctx = canvas.getContext('2d');
+    initialize_off_screen_context();
     canvas.width = grid_size_x * block_size;
     canvas.height = grid_size_y * block_size;
     state_global = get_seed();
@@ -29,7 +41,7 @@ function start_canvas() {
 
     window.setTimeout(function() {
         window.setInterval(function() {
-            drift_pixel-=1;
+            drift_pixel-=2;
         }, step_delay/20);
         window.setInterval(function() {
             let state = calculate_next_generation(state_global);
@@ -129,76 +141,49 @@ function draw_life() {
 }
 
 function draw_life_frame(state) {
-    let translate_px = drift_pixel % block_size;
-    let translate_length = Math.floor((drift_pixel - translate_px) / block_size) % grid_size_x;
+    draw_life_off_screen(state);
 
-    ctx.clearRect(0,0,grid_size_x*block_size, grid_size_y*block_size);
-    ctx.clearRect(0,0,1700, grid_size_y*block_size);
-    ctx.fillStyle = '#CCCCCC';
-    ctx.strokeStyle = '#000000';
-
-    ctx.save();
-
-    ctx.translate(translate_px,0);
-    if(translate_px > block_size)
-    console.log(translate_px);
-    if(translate_length == 0) {
-        draw_life_section(state, 0, grid_size_y-1, 0, grid_size_x-1);
-    } else if(translate_length < 0) {
-        let boundry = Math.abs(translate_length);
-
-        let left_start = boundry;
-        let left_end = grid_size_x - 1;
-        let right_start = 0;
-        let right_end = boundry; // draw 1 past to clip partial column
-        let width_rows_skipped = block_size * (1 + left_end - left_start);
-
-        draw_life_section(state, 0, grid_size_y-1, left_start, left_end);
-
-        ctx.save();
-        ctx.translate(width_rows_skipped, 0);
-        draw_life_section(state, 0, grid_size_y-1, right_start, right_end);
-        ctx.restore();
-
-    } else if(translate_length > 0) {
-        let boundry = grid_size_x - translate_length - 1;
-
-        let left_start = boundry;
-        let left_end = grid_size_x - 1;
-        let right_start = 0;
-        let right_end = boundry -1;
-
-        let width_rows_skipped = block_size * (1 + left_end - left_start);
-
-        draw_life_section(state, 0, grid_size_y-1, left_start, left_end);
-
-        ctx.save();
-        ctx.translate(width_rows_skipped, 0);
-        draw_life_section(state, 0, grid_size_y-1, right_start, right_end);
-        ctx.restore();
+    let mod_drift = drift_pixel % (grid_size_x * block_size);
+    ctx.putImageData(buffer_image, mod_drift, 0);
+    if(mod_drift < 0) {
+        ctx.putImageData(buffer_image, mod_drift + grid_size_x*block_size, 0);
+    } else if(mod_drift > 0) {
+        ctx.putImageData(buffer_image, mod_drift + -grid_size_x*block_size, 0);
     }
-
-    ctx.restore();
 }
 
-function draw_life_section(state, start_row, row_end, start_col, col_end) {
-    for(let row = start_row; row <= row_end; row++) {
+function draw_life_off_screen(state) {
+    ctx_off_screen.clearRect(0,0,grid_size_x*block_size, grid_size_y*block_size);
+    ctx_off_screen.fillStyle = '#CCCCCC';
+    ctx_off_screen.strokeStyle = '#000000';
+
+    for(let row = 0; row < grid_size_y; row++) {
         let y = row * block_size;
-        for(let col = start_col; col <= col_end; col++) {
+        for(let col = 0; col < grid_size_x; col++) {
             if(state[row][col] == 1) {
-                let x = (col - start_col) * block_size;
+                let x = col * block_size;
                 if(option.color_tenth && col % 10 == 0) {
-                    ctx.save();
-                    ctx.fillStyle = 'red';
-                    ctx.fillRect(x, y, block_size, block_size);
-                    ctx.restore();
+                    ctx_off_screen.save();
+                    ctx_off_screen.fillStyle = 'red';
+                    ctx_off_screen.fillRect(x, y, block_size, block_size);
+                    ctx_off_screen.restore();
                 } else {
-                    ctx.fillRect(x, y, block_size, block_size);
+                    ctx_off_screen.fillRect(x, y, block_size, block_size);
                 }
-                ctx.strokeRect(x, y, block_size, block_size);
+                ctx_off_screen.strokeRect(x, y, block_size, block_size);
             }
         }
     }
+    if(option.border_guide) {
+        ctx_off_screen.save();
+        ctx_off_screen.beginPath();
+        ctx_off_screen.strokeStyle = 'red';
+        ctx_off_screen.moveTo(grid_size_x*block_size-3, 0);
+        ctx_off_screen.lineTo(grid_size_x*block_size-3, grid_size_y*block_size);
+        ctx_off_screen.stroke();
+        ctx_off_screen.restore();
+    }
+    buffer_image = ctx_off_screen.getImageData(0,0, grid_size_x*block_size, grid_size_y*block_size);
 }
 
 window.addEventListener("load", windowLoad);
